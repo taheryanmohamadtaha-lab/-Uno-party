@@ -1,0 +1,77 @@
+name: Build UNO Party APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # پوشهٔ android به‌صورت خودکار ساخته می‌شود (در مخزن نیست)
+      - name: Generate Android project
+        run: |
+          flutter create --platforms=android --project-name uno_party --org com.unoparty .
+          rm -f test/widget_test.dart
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Analyze (non-blocking)
+        continue-on-error: true
+        run: flutter analyze | tee analyze_report.txt
+
+      - name: Run tests
+        id: tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded | tee test_report.txt
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      # توجه: بدون کلید امضای شخصی، نسخهٔ Release با کلید debug امضا می‌شود (برای نصب شخصی کافی است).
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Version info
+        run: |
+          echo "UNO Party $(grep '^version:' pubspec.yaml)" > version_info.txt
+          echo "Commit: $GITHUB_SHA" >> version_info.txt
+          echo "Tests: ${{ steps.tests.outcome }}" >> version_info.txt
+          date -u >> version_info.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UNO-Party-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UNO-Party-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            test_report.txt
+            analyze_report.txt
+            version_info.txt
